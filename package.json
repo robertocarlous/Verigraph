@@ -1,0 +1,47 @@
+{
+  "name": "verigraph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Reputation Integrity Monitor — an ASP for OKX.AI that detects wash-traded/wash-rated agent reputations.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch backend/src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/backend/src/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint backend/src backend/test agent contract --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "selfplay:transfers": "tsx agent/transferLoop.ts",
+    "asp:register": "tsx agent/registerAsp.ts",
+    "compile:contracts": "hardhat compile",
+    "deploy:demo-token": "tsx contract/deployDemoToken.ts"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.7",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^8.57.1",
+    "hardhat": "^2.22.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.21.5": true,
+    "fsevents@2.3.3": true,
+    "keccak@3.0.4": true
+  }
+}
