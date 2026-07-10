@@ -67,11 +67,16 @@ async function main(): Promise<void> {
   if (!pictureUrl) throw new Error(`avatar upload did not return a url: ${JSON.stringify(uploadResult)}`);
   console.log(`Avatar uploaded: ${pictureUrl}`);
 
+  // Confirmed against `onchainos agent create --help` (the authoritative
+  // schema — identity-register.md's prose labels and the validate-listing
+  // error message's own example were both misleading): the real element
+  // keys are camelCase `serviceName`/`serviceDescription`/`serviceType`,
+  // not `name`/`description`/`type` nor the lowercase-concatenated form.
   const services = [
     {
-      name: serviceName,
-      description: serviceDescription,
-      type: serviceType,
+      serviceName,
+      serviceDescription,
+      serviceType,
       fee: serviceFee,
       ...(serviceEndpoint ? { endpoint: serviceEndpoint } : {}),
     },
@@ -124,8 +129,24 @@ async function main(): Promise<void> {
 
   if (optionalEnv("ASP_AUTO_ACTIVATE", "true") === "true") {
     console.log(`Activating #${created.newAgentId} ...`);
-    await runCli(["agent", "activate", "--agent-id", created.newAgentId]);
-    console.log(`ASP identity #${created.newAgentId} is now live on OKX.AI.`);
+    // Confirmed live: `activate` requires `--preferred-language` (undocumented
+    // in identity-register.md) and needs the A2A communication runtime ready
+    // (`okx-a2a doctor --fix` — install `@okxweb3/a2a-node` globally first if
+    // this errors with "A2A communication is not ready").
+    const activation = (await runCli([
+      "agent",
+      "activate",
+      "--agent-id",
+      created.newAgentId,
+      "--preferred-language",
+      optionalEnv("ASP_PREFERRED_LANGUAGE", "en"),
+    ])) as { activate?: { success: boolean }; submitApproval?: { approvalStatus: number; success: boolean }[] };
+    // Confirmed live: a successful call submits the listing for OKX's internal
+    // review (`submitApproval.success: true`) — it does not make the ASP
+    // immediately publicly listed (`activate.success` stays false until OKX
+    // approves it; check `agent get-agents --agent-ids <id>` for `approvalLabel`).
+    console.log(`Submitted #${created.newAgentId} for OKX's internal review: ${JSON.stringify(activation)}`);
+    console.log(`Check status any time with: onchainos agent get-agents --agent-ids ${created.newAgentId}`);
   } else {
     console.log(`Run \`onchainos agent activate --agent-id ${created.newAgentId}\` when ready to go live.`);
   }
