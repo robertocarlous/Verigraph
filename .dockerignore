@@ -1,0 +1,14 @@
+node_modules
+dist
+artifacts
+cache
+.git
+.env
+.env.example
+*.log
+.DS_Store
+coverage
+.selfplay-accounts.json
+.deployed-token.json
+.onchainos-*
+README.md

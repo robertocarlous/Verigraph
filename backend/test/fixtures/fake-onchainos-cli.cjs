@@ -33,6 +33,13 @@ if (args.includes("badjson")) {
   process.stdout.write("{not valid json");
   process.exit(0);
 }
+if (args.includes("multiline")) {
+  // Confirmed live in production: a fresh session can make the CLI print an
+  // implicit login-result line before the actual command's result line.
+  process.stdout.write(JSON.stringify({ ok: true, data: { accountId: "acct-1", isNew: false } }) + "\n");
+  process.stdout.write(JSON.stringify({ ok: true, data: { real: "result" } }));
+  process.exit(0);
+}
 if (args.includes("hang")) {
   setTimeout(() => process.exit(0), 10_000);
   return;

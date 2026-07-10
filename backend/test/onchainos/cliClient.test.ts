@@ -45,6 +45,11 @@ describe("cliClient (against a fake onchainos binary)", () => {
     await expect(runCli(["badjson"])).rejects.toBeInstanceOf(CliError);
   });
 
+  it("takes the LAST JSON line when the CLI prints an implicit login line before the real result (confirmed live in production)", async () => {
+    const result = (await runCli(["multiline"])) as { real: string };
+    expect(result.real).toBe("result");
+  });
+
   it("throws a clear CliError when the binary doesn't exist", async () => {
     process.env.ONCHAINOS_CLI_BIN = "/nonexistent/onchainos-binary";
     await expect(runCli(["wallet", "status"])).rejects.toBeInstanceOf(CliError);

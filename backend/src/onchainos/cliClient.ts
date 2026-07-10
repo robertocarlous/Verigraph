@@ -102,10 +102,27 @@ function execCli(args: string[], options: CliRunOptions): Promise<unknown> {
       }
       let parsed: unknown;
       try {
+        // Fast path: the common case is a single JSON object on stdout.
         parsed = JSON.parse(trimmed);
-      } catch (err) {
-        reject(new CliError(`failed to parse CLI JSON output: ${(err as Error).message}\n${trimmed}`, stdout, stderr, code));
-        return;
+      } catch {
+        // Confirmed live in production: on a fresh session (e.g. a container's
+        // first-ever invocation, nothing yet persisted to ONCHAINOS_HOME), the
+        // CLI can implicitly re-authenticate as a side effect of running the
+        // requested command, and prints BOTH the login-result JSON line AND
+        // the actual command's result JSON line to stdout, newline-delimited.
+        // The requested command's own result is always the LAST line.
+        const lines = trimmed.split("\n").map((l) => l.trim()).filter(Boolean);
+        const lastLine = lines[lines.length - 1];
+        try {
+          parsed = lastLine ? JSON.parse(lastLine) : undefined;
+        } catch (err) {
+          reject(new CliError(`failed to parse CLI JSON output: ${(err as Error).message}\n${trimmed}`, stdout, stderr, code));
+          return;
+        }
+        if (parsed === undefined) {
+          reject(new CliError(`failed to parse CLI JSON output (no lines found)\n${trimmed}`, stdout, stderr, code));
+          return;
+        }
       }
       try {
         resolve(unwrapCliEnvelope(parsed, args, stdout, stderr, code));
