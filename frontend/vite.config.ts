@@ -6,17 +6,16 @@ import tailwindcss from "@tailwindcss/vite";
 // whether served by Vite (dev) or by Express itself serving the built dist/
 // (prod/demo) — see backend/src/server.ts's static mount.
 //
-// Defaults to localhost:8402 — Railway is currently running older code
-// (from before this session's rpcUrl/signerAddress/signed-reports/retry/
-// INSUFFICIENT_DATA additions) so pointing here at Railway would silently
-// break the app until it's redeployed. Once Railway is updated, switch this
-// default (or set VITE_API_TARGET=https://verigraph-production.up.railway.app
-// in frontend/.env.local) — see vercel.json for the equivalent rewrite used
-// when the frontend itself is deployed to Vercel, so both dev and prod
-// consistently point at one real backend URL with no local server involved.
+// Defaults to the deployed Railway backend (verified live and running the
+// current commit — /v1/pricing returns rpcUrl/signerAddress, confirming it's
+// not the older pre-redeploy code) — see vercel.json for the equivalent
+// rewrite used when the frontend itself is deployed to Vercel, so both dev
+// and prod consistently point at one real backend URL with no local server
+// required. Override with VITE_API_TARGET (e.g. in frontend/.env.local) to
+// point at a local backend (`npm run dev` / `npm run dev:all`) instead.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiTarget = env.VITE_API_TARGET || "http://localhost:8402";
+  const apiTarget = env.VITE_API_TARGET || "https://verigraph-production.up.railway.app";
 
   return {
     plugins: [react(), tailwindcss()],
