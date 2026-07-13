@@ -39,33 +39,64 @@ export function buildRequestPath(path: string, query: Record<string, string | un
   return queryString ? `${path}?${queryString}` : path;
 }
 
+export interface RestClientRetryOptions {
+  attempts?: number;
+  baseDelayMs?: number;
+}
+
+// Confirmed live: the path from this environment to web3.okx.com
+// intermittently times out or degrades (same flakiness agent/transferLoop.ts
+// and x402/settle.ts already retry around) even though the same call
+// reliably succeeds on a clean connection. Unlike the settlement broadcast,
+// this is a plain signed GET — unconditionally safe to retry, no
+// side-effect/replay risk at all.
+const REST_RETRY_ATTEMPTS = 3;
+const REST_RETRY_BASE_DELAY_MS = 2000;
+
 export class OnchainOsRestClient {
   private readonly http: AxiosInstance;
   private readonly creds: OkxCredentials;
+  private readonly retry: Required<RestClientRetryOptions>;
 
-  constructor(creds: OkxCredentials, baseUrl = optionalEnv("OKX_BASE_URL", "https://web3.okx.com")) {
+  constructor(
+    creds: OkxCredentials,
+    baseUrl = optionalEnv("OKX_BASE_URL", "https://web3.okx.com"),
+    retry: RestClientRetryOptions = {},
+  ) {
     this.creds = creds;
     this.http = axios.create({ baseURL: baseUrl, timeout: 15_000 });
+    this.retry = { attempts: retry.attempts ?? REST_RETRY_ATTEMPTS, baseDelayMs: retry.baseDelayMs ?? REST_RETRY_BASE_DELAY_MS };
   }
 
   /** Signed GET against a public OKX OnchainOS endpoint. Empty-value params are dropped, matching the reference CLI. */
   async signedGet<T = unknown>(path: string, query: Record<string, string | undefined>): Promise<T> {
     const requestPath = buildRequestPath(path, query);
-    const timestamp = new Date().toISOString();
-    const signature = signOkxRequest(this.creds.secretKey, timestamp, "GET", requestPath, "");
 
-    const response = await this.http.get(requestPath, {
-      headers: {
-        "Content-Type": "application/json",
-        "OK-ACCESS-KEY": this.creds.apiKey,
-        "OK-ACCESS-SIGN": signature,
-        "OK-ACCESS-PASSPHRASE": this.creds.passphrase,
-        "OK-ACCESS-TIMESTAMP": timestamp,
-        "ok-client-type": "cli",
-        "Ok-Access-Client-type": "agent-cli",
-      },
-    });
-    return unwrapEnvelope<T>(response.data);
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= this.retry.attempts; attempt++) {
+      const timestamp = new Date().toISOString();
+      const signature = signOkxRequest(this.creds.secretKey, timestamp, "GET", requestPath, "");
+      try {
+        const response = await this.http.get(requestPath, {
+          headers: {
+            "Content-Type": "application/json",
+            "OK-ACCESS-KEY": this.creds.apiKey,
+            "OK-ACCESS-SIGN": signature,
+            "OK-ACCESS-PASSPHRASE": this.creds.passphrase,
+            "OK-ACCESS-TIMESTAMP": timestamp,
+            "ok-client-type": "cli",
+            "Ok-Access-Client-type": "agent-cli",
+          },
+        });
+        return unwrapEnvelope<T>(response.data);
+      } catch (err) {
+        lastErr = err;
+        if (attempt < this.retry.attempts) {
+          await new Promise((r) => setTimeout(r, this.retry.baseDelayMs * attempt));
+        }
+      }
+    }
+    throw lastErr;
   }
 }
 

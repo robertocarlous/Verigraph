@@ -33,6 +33,11 @@ export interface PaymentContext {
   provider: ethers.Provider;
   contract: SettlementContract;
   challengeConfig: ChallengeConfig;
+  /** Public RPC endpoint — safe to expose so a browser wallet can add/switch to this chain. */
+  rpcUrl: string;
+  /** Derives from RELAYER_PRIVATE_KEY — a separate, exportable settlement key, deliberately NOT the OKX.AI marketplace ASP identity (that's a different, TEE-secured wallet with no exportable key). See reportSigning.ts. */
+  signerAddress: string;
+  signMessage: (message: string) => Promise<string>;
 }
 
 const DEMO_TOKEN_ABI = [
@@ -69,11 +74,15 @@ export async function buildPaymentContext(): Promise<PaymentContextResult> {
     return { missing };
   }
 
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  // `staticNetwork` skips ethers' own eth_chainId auto-detect handshake and
+  // trusts the chain id already recorded alongside the deployed token —
+  // confirmed live: plain auto-detection against this RPC endpoint
+  // intermittently times out even though the endpoint itself responds fine
+  // to a direct JSON-RPC call, so avoid the extra round trip entirely.
+  const provider = new ethers.JsonRpcProvider(rpcUrl, tokenInfo.chainId, { staticNetwork: true });
   let chainId: number;
   try {
-    const network = await provider.getNetwork();
-    chainId = Number(network.chainId);
+    chainId = Number((await provider.getNetwork()).chainId);
   } catch (err) {
     return { missing: [`unreachable XLAYER_TESTNET_RPC_URL (${(err as Error).message})`] };
   }
@@ -94,7 +103,18 @@ export async function buildPaymentContext(): Promise<PaymentContextResult> {
     maxTimeoutSeconds: Number(optionalEnv("PAYMENT_MAX_TIMEOUT_SECONDS", "120")),
   };
 
-  return { context: { chainId, provider, contract, challengeConfig }, missing: [] };
+  return {
+    context: {
+      chainId,
+      provider,
+      contract,
+      challengeConfig,
+      rpcUrl,
+      signerAddress: relayer.address,
+      signMessage: (message) => relayer.signMessage(message),
+    },
+    missing: [],
+  };
 }
 
 // Confirmed live against the real API: `dex-history` rejects chainIndex "1952"

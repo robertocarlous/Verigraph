@@ -9,7 +9,10 @@
   },
   "scripts": {
     "dev": "tsx watch backend/src/server.ts",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:all": "concurrently -k -n backend,frontend -c blue,green \"npm:dev\" \"npm:dev:frontend\"",
     "build": "tsc -p tsconfig.json",
+    "build:frontend": "npm --prefix frontend install && npm --prefix frontend run build",
     "start": "node dist/backend/src/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint backend/src backend/test agent contract --ext .ts",
@@ -32,6 +35,7 @@
     "@types/node": "^22.10.7",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
+    "concurrently": "^10.0.3",
     "eslint": "^8.57.1",
     "hardhat": "^2.22.17",
     "tsx": "^4.19.2",

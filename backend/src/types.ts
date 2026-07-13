@@ -39,7 +39,7 @@ export interface ResolvedAgent {
   name?: string;
 }
 
-export type IntegrityLabel = "ORGANIC" | "MIXED_SIGNAL" | "LIKELY_MANUFACTURED";
+export type IntegrityLabel = "ORGANIC" | "MIXED_SIGNAL" | "LIKELY_MANUFACTURED" | "INSUFFICIENT_DATA";
 
 export interface EvidenceItem {
   module: "reputationGraph" | "txPatterns" | "onchainCrossRef";

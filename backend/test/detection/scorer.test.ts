@@ -71,4 +71,16 @@ describe("buildIntegrityReport", () => {
     expect(report.label).toBe("LIKELY_MANUFACTURED");
     expect(report.signals.txPatterns).toBeNull();
   });
+
+  it("labels INSUFFICIENT_DATA, not ORGANIC, when every signal module is null", () => {
+    const report = buildIntegrityReport({
+      target: { walletAddress: "0xUnknown" },
+      reputationGraph: null,
+      txPatterns: null,
+      onchainCrossRef: null,
+      chain: "xlayer_test",
+      dataWindow: window,
+    });
+    expect(report.label).toBe("INSUFFICIENT_DATA");
+  });
 });

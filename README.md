@@ -29,12 +29,26 @@ between two agents.
    Verigraph issues its own `accepts[]` challenge, verifies the buyer's EIP-3009
    signature itself, and settles on-chain via its own relayer wallet, requiring
    on-chain confirmation before serving the response.
+5. **Sign** — `backend/src/x402/reportSigning.ts` signs the canonical JSON of
+   every report (EIP-191 `personal_sign`) with the same relayer wallet from
+   step 4 before returning it, so any querying agent can verify the response
+   actually came from the identity that settled their payment and wasn't
+   altered in transit — the frontend recomputes this client-side
+   (`frontend/src/lib/verifyReport.ts`, no trust in the server's say-so) and
+   shows a "signature verified" badge. Deliberately **not** the OKX.AI
+   marketplace ASP identity itself (a separate, TEE-secured wallet with no
+   exportable key — see "Listing on OKX.AI" below); this proves
+   *non-repudiation* scoped to the relayer key, not that the underlying OKX
+   API data Verigraph read was itself honest — a full guarantee of that would
+   need an oracle/attestation layer over the OKX API calls (e.g. TLSNotary-style
+   proofs), which is a much bigger undertaking than this hackathon window
+   allows and was deliberately scoped out in favor of shipping something real.
 
 ## Project layout
 
-Organized into exactly three code folders — `contract/`, `agent/`, `backend/` —
-matching the backend-and-agent-side scope of this build, plus root-level
-project tooling/config.
+Four code folders — `contract/`, `agent/`, `backend/`, `frontend/` — matching
+the backend/agent/demo-UI scope of this build, plus root-level project
+tooling/config.
 
 ```
 contract/
@@ -51,6 +65,7 @@ backend/
     detection/            # the three signal modules + scorer (pure, unit-tested)
     x402/                  # challenge / verify / settle / nonceStore / middleware
     server.ts              # Express app: POST /v1/integrity-check, /v1/pricing, /v1/health
+                            #   also serves the built frontend/dist as static files
     config.ts              # lazy config assembly — /health and /pricing work with zero creds
   test/                    # vitest — detection engine, x402, onchainos client, all offline
   test/integration/localE2E.ts  # real end-to-end check against a local Hardhat chain
@@ -62,6 +77,9 @@ Dockerfile / .dockerignore  # production image for deployment (see "Deployment" 
                             #   (config.ts hardcodes its own minimal ERC-20 ABI), so this
                             #   image only needs Node + the compiled server + the real
                             #   `onchainos` CLI binary — not Hardhat/contract compilation
+frontend/                  # React + TS + wagmi/viem demo UI — for judges/testers, not
+                            #   an ASP functional requirement itself. Connect wallet -> pay
+                            #   via x402 -> see the integrity report. See "Frontend" below.
 hardhat.config.cjs         # kept at root (Hardhat's cwd-based config discovery);
                             #   paths.sources points at contract/
 ```
@@ -101,6 +119,9 @@ npx tsx backend/test/integration/localE2E.ts   # real 402->sign->pay->settle->re
    writes `contract/.deployed-token.json`.
 5. Set `RELAYER_PRIVATE_KEY` and `SERVICE_WALLET_ADDRESS`.
 6. `npm run dev` — `/v1/health` should now report `paymentConfigured: true`.
+   `npm run build:frontend` once, then open `http://localhost:8402/` for the
+   demo UI (connect wallet -> pay via x402 -> see the integrity report). See
+   "Frontend" below for the dev-mode (hot reload) alternative.
 7. `npm run selfplay:transfers` (needs two separate OKX AK credential sets,
    `WALLET_A_*` / `WALLET_B_*`) — produces a real, on-chain, verifiable
    reciprocal-transfer pattern and prints tx hashes. Runs on X Layer **testnet**
@@ -213,12 +234,104 @@ only the full `onchainos agent create --help` output has the truth):
    asynchronous, exactly matching the hackathon rule "must pass OKX AI's
    internal review and go live").
 
-**Live status**: registered as **agent #5011 ("Verigraph")** — real avatar
-uploaded to OKX's CDN, `approvalRemark: "AI quality review suggested pass"`,
-submitted for review. `serviceList` came back empty on the last status
-check despite the service being submitted with `create` — worth
-re-verifying once OKX's review finishes; may just be pending-until-approved
-rather than a bug.
+**Live status**: registered as **agent #5011 ("Verigraph")**, owned by
+`0x5706383f8f6c0dbba8881bf346d71a4f6294b71d` (the OKX-login TEE-secured
+wallet identity — a genuinely different address from `SERVICE_WALLET_ADDRESS`
+/ `RELAYER_PRIVATE_KEY`, which is a separate, deliberately-exportable key
+used only for signing/broadcasting x402 settlement transactions and report
+signatures; see "Frontend" below for what that second key is used for).
+First submission was **rejected**, specifically on the avatar — OKX requires
+exactly **440×440px, square corners** (no rounded corners); `assets/avatar.svg`
+originally shipped at 512×512 with `rx="96"` rounded corners. Fixed
+(dropped the `rx`, rasterized at 440×440 via `sharp-cli`) and **resubmitted**
+via `agent upload` → `agent update --picture ...` → `agent activate` (the
+last two require OKX's `okx-a2a` daemon — `npm i -g @okxweb3/a2a-node &&
+okx-a2a doctor --fix`, which installs a persistent autostart service; see
+`agent activate --help` for the also-required `--preferred-language` flag).
+As of the last check: `approvalLabel: "Listing under review"`,
+`approvalRemark: "AI quality review suggested pass"` — the only known
+blocker is fixed; final human/internal review timing is outside our
+control. Re-check any time with
+`onchainos agent get-agents --agent-ids 5011`.
+
+**Real service already correctly attached** — `agent service-list --agent-id 5011`
+is the authoritative query for this (`agent get-agents` returned an empty
+`serviceList` at one point, which looked like a bug but wasn't): service id
+31273 "Reputation Integrity Check", 0.05 USDT, endpoint
+`https://verigraph-production.up.railway.app/v1/integrity-check` — the real,
+live Railway deployment, confirmed reachable and using the same
+`SERVICE_WALLET_ADDRESS` as local dev.
+
+## Frontend
+
+A React + TypeScript + wagmi/viem demo UI (no Next.js — this is a pure
+client-side SPA against an existing REST API, so SSR/routing would be unused
+weight). Wallet connect uses wagmi's core hooks directly rather than
+ConnectKit/RainbowKit: both currently pin to `wagmi@2.x`/React 18-only peers
+and would have needed downgrading the rest of the stack just to fight a
+generic multi-wallet picker that adds little for a single custom testnet
+chain MetaMask users have to add manually anyway.
+
+```bash
+npm run dev:all          # one command: backend on :8402 + Vite dev server on
+                          #   :5173 (hot reload, proxies /v1/* to :8402),
+                          #   coupled with `concurrently -k` — either one
+                          #   dying takes both down, so they can't drift out
+                          #   of sync. Open http://localhost:5173/.
+# or, for a single static demo (one process, no proxy):
+npm run build:frontend   # builds frontend/dist; the backend serves it at /
+npm run dev              # then just http://localhost:8402/
+```
+
+`npm run dev` and `npm run dev:frontend` still exist individually if you want
+them in separate terminals, but `dev:all` is the one to reach for by default —
+a dead backend silently breaking the frontend's `fetch("/v1/pricing")` (empty
+response body, confusing `Unexpected end of JSON input` in the browser) is
+exactly the failure mode `-k` and the Vite proxy's error logging (see
+`vite.config.ts`) exist to make loud and obvious instead.
+
+**API target, dev vs. Vercel**: `vite.config.ts`'s dev proxy defaults to
+`localhost:8402`, overridable via `VITE_API_TARGET` in `frontend/.env.local`
+(e.g. point it at Railway once that's redeployed with current code — see
+"Deployment" above; as of now Railway predates this session's
+`rpcUrl`/`signerAddress`/signed-reports/retry/`INSUFFICIENT_DATA` work, so
+pointing at it prematurely breaks the app's bootstrap check). `frontend/vercel.json`
+mirrors the same idea for a **production** Vercel deployment of the frontend:
+a rewrite forwards `/v1/*` to the Railway URL, so the frontend code's plain
+`fetch("/v1/...")` calls work unchanged in dev (Vite proxy), on Express
+(same-origin, built dist/), and on Vercel (rewrite) — one real backend URL,
+no CORS config, no frontend code branching on environment.
+
+Flow: connect wallet -> switch/add X Layer testnet -> **Get demo vUSD**
+(calls the contract's open `mint()` directly from the browser, gas-free, no
+faucet needed) -> enter a wallet address or OKX.AI agent id (two one-click
+examples are pre-filled: the self-play test wallet and a real OKX.AI agent) ->
+**Check reputation** drives the real 402 -> EIP-712 sign -> `X-PAYMENT` ->
+on-chain settlement flow and renders the returned `IntegrityReport`.
+
+**Verified for real**, not just typechecked: built, served from Express, and
+driven end-to-end in headless Chrome with a fake `window.ethereum` bridged to
+a real `viem` account (via Puppeteer's `exposeFunction`) — connect, mint,
+sign, and settle all happened for real against the live server and X Layer
+testnet, producing an actual on-chain settlement tx and a rendered report.
+
+**Gotcha hit during that testing, worth knowing before a live demo**: don't
+reuse `RELAYER_PRIVATE_KEY` as a test buyer's wallet. Doing so makes two
+independent senders (your test client and the backend's own relayer) submit
+transactions from the same account concurrently, which races the account's
+nonce and fails with `NONCE_EXPIRED`/"nonce too low" — not a bug in the
+payment code, just don't self-pay from the service's own relayer key outside
+of the offline `localE2E.ts` harness (which sequences everything in one
+process, so it doesn't hit this).
+
+**Also confirmed live**: this environment's path to X Layer testnet (and to
+OKX's `onchainos` CLI proxy) intermittently times out or degrades — the same
+flakiness `agent/transferLoop.ts` already retries around. `settle.ts` now
+retries the broadcast+confirm cycle up to 3 times with backoff before
+failing a payment outright (retry count/delay are injectable so the unit
+tests don't pay the real-world delay). If you ever see `settlement failed:
+transferWithAuthorization broadcast failed: request timeout` from the UI
+despite the retries, it's this — just try the check again.
 
 ## Confirmed live (real OKX credentials + real X Layer testnet)
 
@@ -227,7 +340,15 @@ rather than a bug.
   once real data came back.
 - Full x402 flow — 402 → sign → pay → on-chain settlement → confirmed → replay
   blocked with 409 — run for real against a deployed `DemoEIP3009Token` on X
-  Layer testnet, not just against a local Hardhat chain.
+  Layer testnet, not just against a local Hardhat chain, and again through the
+  real browser frontend (see "Frontend" above).
+- **Confirmed live**: plain `ethers.JsonRpcProvider` auto-network-detection
+  (`provider.getNetwork()` with no chain id hint) against the X Layer testnet
+  RPC intermittently times out from this environment even though the same
+  endpoint answers a direct JSON-RPC call instantly. `config.ts` now
+  constructs the provider with an explicit `chainId` + `staticNetwork: true`
+  (sourced from the already-known deployed-token chain id) to skip that
+  handshake entirely, which resolved it.
 - **Important, testnet-only-affects-this finding**: `dex-history` rejects
   `chainIndex "1952"` (X Layer testnet) with `{code: "51000", msg: "chain id
   param error"}` — confirmed live. It's mainnet-only; there's no real DEX

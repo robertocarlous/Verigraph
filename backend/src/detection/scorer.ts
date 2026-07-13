@@ -33,16 +33,23 @@ function combinedSuspicion(input: ScoreInput): number {
   return clamp01(weighted / totalWeight);
 }
 
-function labelFor(suspicion: number): IntegrityLabel {
+function labelFor(suspicion: number, hasData: boolean): IntegrityLabel {
+  if (!hasData) return "INSUFFICIENT_DATA";
   if (suspicion >= LIKELY_MANUFACTURED_THRESHOLD) return "LIKELY_MANUFACTURED";
   if (suspicion >= MIXED_SIGNAL_THRESHOLD) return "MIXED_SIGNAL";
   return "ORGANIC";
 }
 
 export function buildIntegrityReport(input: ScoreInput): IntegrityReport {
+  // Every signal module null (network failure, sparse target, etc.) must not
+  // silently read as "checked and found clean" — combinedSuspicion() has no
+  // data to weigh and defaults to 0, which would otherwise land on ORGANIC
+  // indistinguishably from a genuinely verified-clean result. Confirmed live:
+  // this happened for a real target when dex-history timed out.
+  const hasData = input.reputationGraph !== null || input.txPatterns !== null || input.onchainCrossRef !== null;
   const suspicion = combinedSuspicion(input);
   const integrityScore = Math.round((1 - suspicion) * 100);
-  const label = labelFor(suspicion);
+  const label = labelFor(suspicion, hasData);
 
   const evidence: EvidenceItem[] = [
     ...(input.reputationGraph?.evidence ?? []),

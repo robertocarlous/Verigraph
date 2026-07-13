@@ -9,4 +9,5 @@ cache/
 .selfplay-accounts.json
 .onchainos-*/
 .deployed-token.json
+*.tsbuildinfo
 

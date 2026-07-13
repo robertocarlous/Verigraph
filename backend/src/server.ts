@@ -4,6 +4,8 @@
 // so the service is inspectable before anything is fully configured.
 
 import "./env.js";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { buildPaymentContext, integrityCheckWindowDays, okxChainIndex, onchainLookbackBlocks, serverPort } from "./config.js";
@@ -15,10 +17,16 @@ import { startSessionWatchdog } from "./onchainos/authManager.js";
 import { feedbackList, getAgentsByIds } from "./onchainos/cliClient.js";
 import { fetchDexHistory, loadCredentialsFromEnv, OnchainOsRestClient } from "./onchainos/restClient.js";
 import { requirePayment } from "./x402/middleware.js";
+import { canonicalizeReport } from "./x402/reportSigning.js";
 import type { ResolvedAgent, ReviewRecord, SignalResult, TxRecord } from "./types.js";
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const MAX_REVIEWERS_TO_CROSS_CHECK = 5;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// backend/src -> backend -> project root. Serves the *built* React app
+// (`npm run build:frontend`) — in local dev, run the frontend's own Vite
+// dev server instead (`npm run dev:frontend`), which proxies /v1/* here.
+const FRONTEND_DIR = join(__dirname, "..", "..", "frontend", "dist");
 
 class HttpError extends Error {
   constructor(
@@ -133,6 +141,7 @@ const integrityCheckBody = z.object({ target: z.string().min(1) });
 async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
+  app.use(express.static(FRONTEND_DIR));
 
   const { context: paymentContext, missing } = await buildPaymentContext();
   if (missing.length > 0) {
@@ -160,6 +169,8 @@ async function main(): Promise<void> {
       amountAtomic: challengeConfig.priceAtomicUnits.toString(),
       decimals: challengeConfig.tokenDecimals,
       payTo: challengeConfig.payTo,
+      rpcUrl: paymentContext.rpcUrl,
+      signerAddress: paymentContext.signerAddress,
     });
   });
 
@@ -196,7 +207,12 @@ async function main(): Promise<void> {
         },
       });
 
-      res.json(report);
+      if (paymentContext) {
+        const signature = await paymentContext.signMessage(canonicalizeReport(report));
+        res.json({ ...report, signature, signer: paymentContext.signerAddress });
+      } else {
+        res.json(report);
+      }
     } catch (err) {
       next(err);
     }
