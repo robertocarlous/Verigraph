@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useConnection, useConnect, useConnectors, useDisconnect, useSwitchChain, useReadContract, useWriteContract } from "wagmi";
 import { parseUnits } from "viem";
 import type { PricingInfo } from "../lib/types";
@@ -17,6 +17,30 @@ export default function WalletPanel({ pricing }: { pricing: PricingInfo }) {
   const { mutate: disconnect } = useDisconnect();
   const { mutate: switchChain, isPending: isSwitching } = useSwitchChain();
   const [mintLog, setMintLog] = useState<string | null>(null);
+  // A plain retry is one of the confirmed fixes for the "wallet must has at
+  // least one account" bug (a known MetaMask-extension bug, not an actual
+  // missing-account state — see lib/format.ts) — retry once automatically
+  // before bothering the user with it.
+  const hasAutoRetried = useRef(false);
+
+  function handleConnect() {
+    const connector = connectors[0];
+    if (!connector) return;
+    connect(
+      { connector },
+      {
+        onError: (err) => {
+          if (!hasAutoRetried.current && /at least one account/i.test(err.message)) {
+            hasAutoRetried.current = true;
+            connect({ connector });
+          }
+        },
+        onSuccess: () => {
+          hasAutoRetried.current = false;
+        },
+      },
+    );
+  }
 
   const onWrongChain = isConnected && chainId !== targetChainId;
 
@@ -58,7 +82,7 @@ export default function WalletPanel({ pricing }: { pricing: PricingInfo }) {
           <button
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             disabled={isConnecting || isConnectPending || !connectors[0]}
-            onClick={() => connectors[0] && connect({ connector: connectors[0] })}
+            onClick={handleConnect}
           >
             {isConnecting || isConnectPending ? "Connecting…" : "Connect wallet"}
           </button>
