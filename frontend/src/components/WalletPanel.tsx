@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useConnection, useConnect, useConnectors, useDisconnect, useSwitchChain, useReadContract, useWriteContract } from "wagmi";
 import { parseUnits } from "viem";
 import type { PricingInfo } from "../lib/types";
-import { truncateAddress, formatAtomic } from "../lib/format";
+import { truncateAddress, formatAtomic, describeConnectError } from "../lib/format";
 
 const TOKEN_ABI = [
   { type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [] },
@@ -67,7 +67,7 @@ export default function WalletPanel({ pricing }: { pricing: PricingInfo }) {
           </span>
         </div>
       )}
-      {connectError && <p className="mt-2 text-xs text-[color:var(--critical)]">{connectError.message}</p>}
+      {connectError && <p className="mt-2 text-xs text-[color:var(--critical)]">{describeConnectError(connectError)}</p>}
 
       {isConnected && onWrongChain && (
         <div className="flex flex-wrap items-center gap-3">
